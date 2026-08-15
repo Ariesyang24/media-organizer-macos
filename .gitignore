@@ -1,0 +1,9 @@
+.DS_Store
+.build-cache/
+.build-cache-media-organizer/
+*.app/
+metadata_helper
+*.csv
+*.log
+整理失败_*.txt
+
