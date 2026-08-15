@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0"><dict>
+<key>CFBundleExecutable</key><string>Media Organizer</string>
+<key>CFBundleIdentifier</key><string>local.codex.material-organizer</string>
+<key>CFBundleName</key><string>Media Organizer</string>
+<key>CFBundleDisplayName</key><string>Media Organizer</string>
+<key>CFBundlePackageType</key><string>APPL</string>
+<key>CFBundleVersion</key><string>1</string>
+<key>LSMinimumSystemVersion</key><string>13.0</string>
+<key>NSLocationUsageDescription</key><string>用于把照片 GPS 转换为拍摄地区</string>
+</dict></plist>
