@@ -1,0 +1,8 @@
+Pillow>=10.0
+ImageHash>=4.3
+numpy>=1.26
+opencv-python-headless==4.10.0.84
+scenedetect>=0.7
+tkinterdnd2>=0.6
+scipy>=1.11
+PyWavelets>=1.5
