@@ -7,3 +7,43 @@ metadata_helper
 *.log
 整理失败_*.txt
 
+# Python and local runtime
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+scene-runtime/
+
+# Downloaded tools and models
+tools/
+*.onnx
+*.caffemodel
+
+# Local media, caches and generated QA artifacts
+test-results/
+qa/legacy/
+qa/artifacts/
+.media-organizer/
+*.db
+*.sqlite
+*.sqlite3
+
+# Per-machine settings and paths
+media_organizer_user_settings.json
+media_organizer_v3_ui.json
+recognition_settings.json
+folder-path-overrides.json
+material-folders.json
+custom-folder-catalog.json
+project-folder-catalog.json
+
+# Temporary organizer output
+*.part
+*.tmp
+*.bak
+
+# Local-only diagnostics superseded by qa/ checks
+diag_*.py
+integration_test_*.py
+

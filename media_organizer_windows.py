@@ -7,8 +7,7 @@ try:
     from PIL import Image, ExifTags
 except ImportError: Image=ExifTags=None
 
-PHOTOS={'.jpg','.jpeg','.png','.heic','.tif','.tiff','.dng','.cr2','.cr3','.nef','.arw','.raf','.rw2','.orf'}
-VIDEOS={'.mp4','.mov','.m4v','.avi','.mkv','.mts','.m2ts','.wmv','.webm'}
+from supported_formats import PHOTOS, VIDEOS
 EVENT=re.compile(r'(20\d{2})[.\-_年](\d{1,2})[.\-_月](\d{1,2})日?[ _.-]*(.*)')
 BAD=re.compile(r'[\\/:*?"<>|\r\n]+')
 def safe(s): return BAD.sub('-',s).strip().rstrip('.') or '未知'
@@ -66,11 +65,14 @@ class App(tk.Tk):
                 dirs[:]=[x for x in dirs if not any(os.path.normcase(str((Path(d)/x).resolve())).startswith(b) for b in blocked)]
                 files += [(Path(d)/n,root) for n in names if (Path(n).suffix.lower() in PHOTOS|VIDEOS)]
         rows=[]
+        # Publish the same list immediately so the review workspace can render
+        # discovered files while scanning instead of waiting for the full run.
+        self.rows=rows
         for i,(p,root) in enumerate(files,1):
             if self.stop.is_set(): break
             day,ts,dev=meta(p); event=folder_event(p,root); place=event[1] if event else '未设置'; day=event[0] if event else day; kind='照片' if p.suffix.lower() in PHOTOS else '视频'; target=str(Path(f'{day.replace("-",".")} {safe(place)}')/f'{safe(dev)} {kind}')
             rows.append({'p':p,'date':day,'ts':ts,'place':place,'dev':dev,'kind':kind,'target':target}); self.update(i,len(files),f'扫描 {i}/{len(files)}：{p.name}')
-        self.rows=rows; self.after(0,self.render); self.update(len(rows),len(files),f'扫描完成：{len(rows)} 个文件')
+        self.after(0,self.render); self.update(len(rows),len(files),f'扫描完成：{len(rows)} 个文件')
     def render(self):
         self.tree.delete(*self.tree.get_children())
         for i,r in enumerate(self.rows): self.tree.insert('', 'end',iid=str(i),values=(r['p'].name,r['date'],r['place'],r['dev'],r['kind'],r['target']))

@@ -2,6 +2,8 @@ import hashlib
 from pathlib import Path
 import cv2, numpy as np
 from scenedetect import open_video, SceneManager, ContentDetector
+from supported_formats import PRO_VIDEO_FORMATS
+from recognition_engine import rich_metadata
 
 def frame_metrics(frame):
     gray=cv2.cvtColor(frame,cv2.COLOR_BGR2GRAY);blur=float(cv2.Laplacian(gray,cv2.CV_64F).var());mean=float(gray.mean());dark=float((gray<20).mean());bright=float((gray>245).mean())
@@ -21,5 +23,11 @@ def analyze_video(path,cache_root,max_scenes=100):
         cap.release()
         if metrics:
             result['blur']=sum(x[0] for x in metrics)/len(metrics);ex=[x[1] for x in metrics];vis=[x[2] for x in metrics];result['exposure']=max(set(ex),key=ex.count);result['visual']=max(set(vis),key=vis.count)
-    except Exception as exc:result['valid']=False;result['error']=str(exc)
+    except Exception as exc:
+        if path.suffix.lower() in PRO_VIDEO_FORMATS:
+            meta=rich_metadata(path);duration=meta.get('duration')
+            try:duration=float(duration or 0)
+            except (TypeError,ValueError):duration=0
+            result.update(valid=True,preview_supported=False,duration=duration,exposure='暂不预览',visual='专业视频格式',error=str(exc))
+        else:result['valid']=False;result['error']=str(exc)
     return result

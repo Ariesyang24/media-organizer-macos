@@ -51,7 +51,10 @@ class SceneFolderApp(FolderViewApp):
             self.after(0, self.render)
             self.update(total, total, f'场景识别完成：{total} 个素材')
         except Exception as exc:
-            self.after(0, lambda: self.status.set(f'场景识别未完成：{exc}'))
+            # Exception variables are cleared when the except block exits.
+            # Capture the message now so the Tk callback always has a value.
+            message = str(exc)
+            self.after(0, lambda detail=message: self.status.set(f'场景识别未完成：{detail}'))
 
     def render(self):
         super().render()

@@ -35,7 +35,7 @@ class FolderViewApp(CleanUIApp):
         folder_panel = ttk.LabelFrame(self.preview, text='素材文件夹', padding=8)
         folder_panel.pack(fill='x', padx=8, pady=(3, 5), after=progress_panel)
         self.folder_labels = [tk.StringVar() for _ in range(4)]
-        names = ('全部', '照片', '视频', '失败/跳过')
+        names = ('全部', '照片', '视频', '文件异常')
         for index, name in enumerate(names):
             button = ttk.Button(
                 folder_panel,
@@ -56,7 +56,7 @@ class FolderViewApp(CleanUIApp):
             for row in self.rows
         )
         counts = (len(self.rows), photos, videos, failed)
-        names = ('全部', '照片', '视频', '失败/跳过')
+        names = ('全部', '照片', '视频', '文件异常')
         for variable, count, name in zip(self.folder_labels, counts, names):
             variable.set(f'📁  {name}\n{count} 个素材')
 
@@ -73,7 +73,7 @@ class FolderViewApp(CleanUIApp):
             category_match = row.get('kind') == '照片'
         elif mode == '视频':
             category_match = row.get('kind') == '视频'
-        elif mode == '失败/跳过':
+        elif mode == '文件异常':
             category_match = (
                 not row.get('analysis', {}).get('valid', True)
                 or row.get('recommend') == '无法解码'

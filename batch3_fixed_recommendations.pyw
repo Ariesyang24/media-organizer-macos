@@ -1,7 +1,8 @@
 from pathlib import Path
 
-namespace={}
-source=Path(__file__).with_name('batch3_media_organizer.pyw').read_text(encoding='utf-8')
+batch3_path=Path(__file__).with_name('batch3_media_organizer.pyw')
+namespace={'__file__':str(batch3_path)}
+source=batch3_path.read_text(encoding='utf-8')
 source=source.rsplit('Batch3App().mainloop()',1)[0]
 exec(compile(source,'batch3_media_organizer.pyw','exec'),namespace)
 Batch3App=namespace['Batch3App']
@@ -9,6 +10,7 @@ Batch3App=namespace['Batch3App']
 def video_recommendation(result):
     if not result:return '视频待分析'
     if not result.get('valid'):return '无法解码'
+    if result.get('preview_supported') is False:return '专业格式待预览'
     if result.get('duration',0)<1:return '视频过短'
     if result.get('blur',999)<20:return '可能模糊'
     if '严重' in result.get('exposure',''):return '曝光检查'
@@ -32,6 +34,6 @@ class FixedApp(Batch3App):
                 if self.tree.exists(str(index)):self.tree.set(str(index),'recommend',row['recommend'])
                 invalid+=row['recommend']=='无法解码'
             elif not row.get('analysis',{}).get('valid',True):invalid+=1
-        self.stats[3].set(f'{invalid}\n失败/跳过')
+        self.stats[3].set(f'{invalid}\n文件异常')
 
 FixedApp().mainloop()

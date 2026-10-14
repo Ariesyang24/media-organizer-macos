@@ -4,7 +4,14 @@ import threading
 from pathlib import Path
 
 
-CACHE_VERSION = 2
+CACHE_VERSIONS = {
+    'sha256': 2,
+    'analysis': 3,
+    'video': 2,
+    'scene': 2,
+}
+# Compatibility marker for diagnostics created before per-kind versions.
+CACHE_VERSION = CACHE_VERSIONS['analysis']
 CACHE_PATH = Path(__file__).resolve().parent / 'test-results' / 'cache' / 'media-cache.sqlite3'
 LOCK = threading.RLock()
 
@@ -30,21 +37,23 @@ def _connect():
 
 def get(path, kind):
     key, mtime_ns, size = _fingerprint(path)
+    version = CACHE_VERSIONS.get(kind, 2)
     with LOCK, _connect() as connection:
         row = connection.execute(
             'SELECT payload FROM cache WHERE path=? AND mtime_ns=? AND size=? AND kind=? AND version=?',
-            (key, mtime_ns, size, kind, CACHE_VERSION),
+            (key, mtime_ns, size, kind, version),
         ).fetchone()
     return json.loads(row[0]) if row else None
 
 
 def put(path, kind, value):
     key, mtime_ns, size = _fingerprint(path)
+    version = CACHE_VERSIONS.get(kind, 2)
     payload = json.dumps(value, ensure_ascii=False, separators=(',', ':'))
     with LOCK, _connect() as connection:
         connection.execute(
             'INSERT OR REPLACE INTO cache(path,mtime_ns,size,kind,version,payload) VALUES(?,?,?,?,?,?)',
-            (key, mtime_ns, size, kind, CACHE_VERSION, payload),
+            (key, mtime_ns, size, kind, version, payload),
         )
         connection.commit()
     return value
@@ -101,4 +110,3 @@ def cached_scene_class(base_class):
             return value
 
     return CachedSceneRecognizer
-

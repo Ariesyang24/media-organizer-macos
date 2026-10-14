@@ -1,4 +1,5 @@
-import threading, tkinter as tk, tkinter.simpledialog
+import os, threading, tkinter as tk, tkinter.simpledialog
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
 from tkinter import ttk
 from tkinterdnd2 import DND_FILES, TkinterDnD
@@ -26,28 +27,60 @@ class Batch2App(FinalApp):
         for p in self.paths(e):
             if p.is_dir() and p not in self.excludes:self.excludes.append(p);self.exc_box.insert('end',str(p));n+=1
         return e.action
+    def start_side_analysis(self):return None
+    def finish_side_analysis(self,side_work):pass
     def scan(self):
         App.scan(self)
         if self.stop.is_set():return
+        side_work=self.start_side_analysis()
         face_engine=WindowsFaceEngine(Path(__file__).parent/'test-results'/'faces.db') if self.faces_on.get() else None
-        for i,r in enumerate(self.rows,1):
-            if self.stop.is_set():break
-            try:
-                if self.smart.get():
-                    exact=sha(r['p']);r['analysis']=analyze(r['p'],r['kind'],exact);r['analysis']['exact']=exact;m=r['analysis'].get('meta',{});r['dev']=m.get('camera') or r['dev']
-                if face_engine and r['kind']=='照片':r['faces']=face_engine.extract(r['p'])
-            except Exception as exc:r['recognition_error']=str(exc);r.setdefault('analysis',{'valid':False,'exposure':'识别失败','quality':-1})
-            self.update(i,len(self.rows),f'第二批识别 {i}/{len(self.rows)}：{r["p"].name}')
-        if self.smart.get():quality_group(self.rows)
+        if self.smart.get():
+            def analyze_row(r):
+                exact=sha(r['p']); result=analyze(r['p'],r['kind'],exact); result['exact']=exact
+                return result
+            workers=max(1,min(4,os.cpu_count() or 1,len(self.rows)))
+            with ThreadPoolExecutor(max_workers=workers,thread_name_prefix='media-analysis') as pool:
+                pending={pool.submit(analyze_row,r):r for r in self.rows}
+                for i,future in enumerate(as_completed(pending),1):
+                    r=pending[future]
+                    try:
+                        r['analysis']=future.result();m=r['analysis'].get('meta',{});r['dev']=m.get('camera') or r['dev']
+                    except Exception as exc:r['recognition_error']=str(exc);r.setdefault('analysis',{'valid':False,'exposure':'识别失败','quality':-1,'exact':str(r['p']),'phash':None,'meta':{}})
+                    if self.stop.is_set():
+                        for job in pending:job.cancel()
+                        break
+                    if i==1 or i==len(self.rows) or i%10==0:self.update(i,len(self.rows),f'并行识别 {i}/{len(self.rows)}：{r["p"].name}')
         if face_engine:
-            faces,people=face_cluster(self.rows);face_engine.close();self.status.set(f'人物识别完成：{faces} 张人脸，{people} 个人物组')
+            photos=[r for r in self.rows if r['kind']=='照片']
+            for i,r in enumerate(photos,1):
+                if self.stop.is_set():break
+                try:r['faces']=face_engine.extract(r['p'])
+                except Exception as exc:r['recognition_error']=str(exc)
+                if i==1 or i==len(photos) or i%10==0:self.update(i,len(photos),f'人物识别 {i}/{len(photos)}：{r["p"].name}')
+        if self.smart.get() and not self.stop.is_set():quality_group(self.rows)
+        if face_engine:
+            if not self.stop.is_set():
+                faces,people=face_cluster(self.rows);self.status.set(f'人物识别完成：{faces} 张人脸，{people} 个人物组')
+            face_engine.close()
+        self.finish_side_analysis(side_work)
         self.after(0,self.render)
     def render(self):
-        self.calculate();self.tree.delete(*self.tree.get_children())
+        self.calculate()
+        # Reconcile rows in place instead of clearing the whole Treeview first.
+        # During large scans the old implementation repeatedly exposed an empty
+        # table while hundreds/thousands of rows were rebuilt, which also made
+        # the surrounding workbench appear blank.
+        previous=set(getattr(self,'_rendered_iids',set()));current=set()
         for i,r in enumerate(self.rows):
             a=r.get('analysis',{});quality='损坏' if not a.get('valid',True) else (f'{a.get("exposure","")} 清晰{a.get("blur",0):.0f}' if a else '未分析')
-            self.tree.insert('', 'end',iid=str(i),values=(r['p'].name,r['date'],r['place'],r['dev'],r['kind'],quality,r.get('duplicate',''),r.get('burst',''),r.get('people_text','无人脸'),r.get('recommend',''),r['target']))
-        photos=sum(r['kind']=='照片' for r in self.rows);bad=sum(not r.get('analysis',{}).get('valid',True) for r in self.rows);self.stats[0].set(f'{len(self.rows)}\n全部');self.stats[1].set(f'{photos}\n照片');self.stats[2].set(f'{len(self.rows)-photos}\n视频');self.stats[3].set(f'{bad}\n失败/跳过');self.book.select(self.preview);self.action.configure(text='执行整理',command=self.start_run)
+            iid=str(i);current.add(iid);values=(r['p'].name,r['date'],r['place'],r['dev'],r['kind'],quality,r.get('duplicate',''),r.get('burst',''),r.get('people_text','无人脸'),r.get('recommend',''),r['target'])
+            if self.tree.exists(iid):
+                self.tree.item(iid,values=values);self.tree.move(iid,'','end')
+            else:self.tree.insert('', 'end',iid=iid,values=values)
+        for iid in previous-current:
+            if self.tree.exists(iid):self.tree.delete(iid)
+        self._rendered_iids=current
+        photos=sum(r['kind']=='照片' for r in self.rows);bad=sum(not r.get('analysis',{}).get('valid',True) for r in self.rows);self.stats[0].set(f'{len(self.rows)}\n全部');self.stats[1].set(f'{photos}\n照片');self.stats[2].set(f'{len(self.rows)-photos}\n视频');self.stats[3].set(f'{bad}\n文件异常');self.book.select(self.preview);self.action.configure(text='执行整理',command=self.start_run)
     def name_person(self):
         selected=[self.rows[int(x)] for x in self.tree.selection()]
         labels=sorted({p for r in selected for p in r.get('people',set())})

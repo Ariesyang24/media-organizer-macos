@@ -6,26 +6,27 @@ import numpy as np
 
 
 ROOT = Path(__file__).resolve().parent
-LOCAL_MODEL_ROOT = ROOT / 'tools' / 'scene-models'
-FALLBACK_MODEL_ROOT = Path(r'C:\Users\admin\.libtv\media-organizer-models')
-MODEL_ROOT = LOCAL_MODEL_ROOT if (LOCAL_MODEL_ROOT / 'googlenet_places365.caffemodel').exists() else FALLBACK_MODEL_ROOT
+from portable_paths import portable_model_root
+MODEL_ROOT = portable_model_root()
 PROTO = MODEL_ROOT / 'deploy_googlenet_places365.prototxt'
 MODEL = MODEL_ROOT / 'googlenet_places365.caffemodel'
 LABELS = MODEL_ROOT / 'categories_places365.txt'
 
 SCENE_RULES = {
     '餐饮美食': ('restaurant', 'kitchen', 'dining', 'cafeteria', 'coffee_shop', 'bakery', 'food_court', 'bar/', 'banquet'),
-    '商业购物': ('shop', 'store', 'market', 'supermarket', 'showroom', 'shopping_mall', 'boutique', 'beauty_salon'),
-    '街景交通': ('street', 'highway', 'road', 'crosswalk', 'parking', 'subway', 'train_station', 'airport', 'bus_', 'vehicle'),
+    '商业购物': ('shop', 'store', 'market', 'supermarket', 'showroom', 'shopping_mall', 'boutique', 'beauty_salon', 'bank_vault'),
+    '街景交通': ('street', 'highway', 'road', 'crosswalk', 'parking', 'subway', 'train_station', 'airport', 'airplane', 'cockpit', 'berth', 'bus_', 'vehicle'),
     '自然风景': ('beach', 'forest', 'mountain', 'field', 'river', 'lake', 'ocean', 'waterfall', 'desert', 'garden', 'park', 'canyon', 'valley'),
-    '建筑地标': ('building', 'tower', 'bridge', 'church', 'temple', 'palace', 'castle', 'plaza', 'courtyard', 'monument', 'museum'),
+    '建筑地标': ('building', 'tower', 'bridge', 'church', 'synagogue', 'temple', 'palace', 'castle', 'plaza', 'courtyard', 'monument', 'museum', 'medina'),
     '运动活动': ('stadium', 'gym', 'sports', 'swimming_pool', 'ski', 'racecourse', 'playground', 'bowling'),
     '舞台娱乐': ('stage', 'theater', 'cinema', 'amusement', 'discotheque', 'music_studio', 'television_studio', 'auditorium'),
-    '办公学习': ('office', 'classroom', 'library', 'conference_room', 'computer_room', 'art_studio'),
-    '家居室内': ('bedroom', 'living_room', 'bathroom', 'home_office', 'closet', 'nursery', 'playroom', 'attic', 'basement'),
+    '办公学习': ('office', 'reception', 'classroom', 'library', 'conference_room', 'computer_room', 'art_studio'),
+    '家居室内': ('bedroom', 'bedchamber', 'living_room', 'bathroom', 'home_office', 'closet', 'dressing_room', 'utility_room', 'nursery', 'playroom', 'attic', 'basement'),
     '动物宠物': ('aquarium', 'zoo', 'pet_shop', 'stable', 'barn', 'kennel'),
 }
 
+
+TOP_K = 7
 
 class SceneRecognizer:
     def __init__(self):
@@ -57,14 +58,29 @@ class SceneRecognizer:
         blob = cv2.dnn.blobFromImage(frame, 1.0, (224, 224), (104, 117, 123), swapRB=False, crop=True)
         self.net.setInput(blob)
         scores = self.net.forward().reshape(-1)
-        best = int(scores.argmax())
-        label = self.labels[best] if best < len(self.labels) else 'unknown'
-        return {'group': self._group(label), 'label': label, 'confidence': float(scores[best])}
+        count = min(TOP_K, len(scores))
+        top = np.argpartition(scores, -count)[-count:]
+        top = top[np.argsort(scores[top])[::-1]]
+        candidates, group_scores, group_best = [], Counter(), {}
+        for index in top:
+            index = int(index)
+            label = self.labels[index] if index < len(self.labels) else 'unknown'
+            confidence = float(scores[index])
+            group = self._group(label)
+            item = {'group': group, 'label': label, 'confidence': confidence}
+            candidates.append(item)
+            group_scores[group] += confidence
+            if group not in group_best or confidence > group_best[group]['confidence']:
+                group_best[group] = item
+        group = group_scores.most_common(1)[0][0]
+        representative = group_best[group]
+        return {'group': group, 'label': representative['label'],
+                'confidence': float(group_scores[group]), 'candidates': candidates}
 
     def classify_image(self, path):
         return self.classify_frame(self._read_image(path))
 
-    def classify_video(self, row, max_frames=3):
+    def classify_video(self, row, max_frames=5):
         keyframes = row.get('video_analysis', {}).get('keyframes', [])
         results = []
         if keyframes:
@@ -72,7 +88,7 @@ class SceneRecognizer:
         else:
             cap = cv2.VideoCapture(str(row['p']))
             total = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
-            for ratio in (0.25, 0.5, 0.75):
+            for ratio in (0.10, 0.30, 0.50, 0.70, 0.90):
                 cap.set(cv2.CAP_PROP_POS_FRAMES, max(0, int(total * ratio)))
                 ok, frame = cap.read()
                 if ok:
@@ -81,6 +97,9 @@ class SceneRecognizer:
         valid = [item for item in results if item['group'] != '无法识别']
         if not valid:
             return {'group': '无法识别', 'label': '', 'confidence': 0.0}
-        group = Counter(item['group'] for item in valid).most_common(1)[0][0]
+        votes = Counter()
+        for item in valid:
+            votes[item['group']] += max(0.01, item['confidence'])
+        group = votes.most_common(1)[0][0]
         representative = max((item for item in valid if item['group'] == group), key=lambda item: item['confidence'])
         return {'group': group, 'label': representative['label'], 'confidence': representative['confidence']}

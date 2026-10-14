@@ -5,6 +5,7 @@ from pathlib import Path
 
 import cv2
 from PIL import Image, ImageDraw, ImageFont, ImageOps, ImageTk
+from recognition_engine import decode
 
 
 CACHE_ROOT = Path(__file__).resolve().parent / 'test-results' / 'thumbnail-cache'
@@ -54,7 +55,12 @@ def make_thumbnail(row, size=(240, 150)):
             if image is None:
                 image = _placeholder('视频无预览')
         else:
-            image = ImageOps.exif_transpose(Image.open(source)).convert('RGB')
+            try:
+                image = ImageOps.exif_transpose(Image.open(source)).convert('RGB')
+            except Exception:
+                frame = decode(source)
+                if frame is None: raise
+                image = Image.fromarray(cv2.cvtColor(frame, cv2.COLOR_BGR2RGB))
         image.thumbnail(size, Image.Resampling.LANCZOS)
         canvas = Image.new('RGB', size, '#15181c')
         canvas.paste(image, ((size[0] - image.width) // 2, (size[1] - image.height) // 2))
@@ -140,4 +146,3 @@ class ThumbnailGallery:
             self.window.destroy()
         except Exception:
             pass
-
