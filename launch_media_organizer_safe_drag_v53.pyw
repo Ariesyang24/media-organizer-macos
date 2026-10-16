@@ -1,11 +1,14 @@
 import builtins, os, shutil, sys, threading, time
+import tkinter as tk
 from pathlib import Path
-from tkinter import messagebox
+from tkinter import filedialog, messagebox, simpledialog
 from resumable_organizer import ResumableOrganizer, write_report
 from media_organizer_windows import safe
 
 ROOT = Path(__file__).resolve().parent
 sys.path.insert(0, str(ROOT / 'scene-runtime'))
+from product_style_preview import generate_product_style_preview, move_grouped_media
+from v3_ui_components import CanvasButton, COLORS
 builtins.__file__ = str(ROOT / 'launch_scene_folder_final.pyw')
 launcher = ROOT / 'launch_media_organizer_safe_drag_v52.pyw'
 scope = {'__name__': 'v53_base', '__file__': str(launcher)}
@@ -27,6 +30,91 @@ class SafeDragV53MediaOrganizerApp(Base):
         self._raise_sidebar_toggle()
         self.tree.bind('<Double-1>', self._open_clicked_media, add='+')
         self.tree.bind('<ButtonRelease-1>', self._open_preview_cell, add='+')
+        self._install_product_style_preview()
+        # Always open on the confirmed "添加素材" page.  This is intentionally
+        # independent from the remembered sidebar expanded/collapsed preference.
+        self._select_page(0)
+        self.after_idle(lambda: self._select_page(0))
+
+    def _install_product_style_preview(self):
+        """Add the safe two-step grouping action to the source card."""
+        holder = tk.Frame(self.source_card.body, background=COLORS['card'])
+        holder.pack(fill='x', side='bottom', pady=(10, 0))
+        self.product_group_button = CanvasButton(
+            holder, '智能分款并生成预览', command=self._start_product_style_preview,
+            variant='secondary', icon='photo', width=210, height=42,
+        )
+        self.product_group_button.pack(side='left')
+        self.product_group_status = tk.StringVar(value='按连续拍摄内容识别换款点，不会直接移动原文件')
+        tk.Label(
+            holder, textvariable=self.product_group_status, background=COLORS['card'],
+            foreground=COLORS['muted'], font=('Segoe UI', 9), anchor='w',
+        ).pack(side='left', fill='x', expand=True, padx=(12, 0))
+
+    def _start_product_style_preview(self):
+        sources = [Path(value) for value in self.sources if Path(value).exists()]
+        if not sources:
+            return messagebox.showwarning('智能分款', '请先添加一个素材来源', parent=self)
+        source = sources[0]
+        if len(sources) > 1:
+            chosen = filedialog.askdirectory(
+                parent=self, title='选择要智能分款的素材来源', initialdir=str(source)
+            )
+            if not chosen:
+                return
+            source = Path(chosen)
+        count = simpledialog.askinteger(
+            '智能分款', '这批素材预计有几款？', parent=self,
+            initialvalue=2, minvalue=1, maxvalue=12,
+        )
+        if count is None:
+            return
+        self.product_group_button.configure(state='disabled')
+        self.product_group_status.set('正在读取代表画面并分析换款点…')
+
+        def progress(done, total, name):
+            self.after(0, lambda: self.product_group_status.set(
+                f'正在分析 {done}/{total}：{name}'
+            ))
+
+        def worker():
+            try:
+                result = generate_product_style_preview(source, count, progress)
+            except Exception as exc:
+                self.after(0, lambda error=exc: self._finish_product_style_preview(None, error))
+            else:
+                self.after(0, lambda value=result: self._finish_product_style_preview(value, None))
+
+        threading.Thread(target=worker, daemon=True).start()
+
+    def _finish_product_style_preview(self, result, error):
+        self.product_group_button.configure(state='normal')
+        if error is not None:
+            self.product_group_status.set('生成失败，可修复素材后重试')
+            return messagebox.showerror('智能分款失败', str(error), parent=self)
+        counts = '，'.join(f'款式 {index:02d}：{count} 项' for index, count in enumerate(result.group_counts, 1))
+        self.product_group_status.set(f'预览已生成 · {counts}')
+        try:
+            os.startfile(str(result.html_path))
+        except OSError:
+            pass
+        should_move = messagebox.askyesno(
+            '分款预览已生成',
+            f'{counts}\n\n预览：{result.html_path}\n清单：{result.csv_path}\n\n'
+            '现在按分组移动原素材吗？\n'
+            '选择“否”只保留预览和清单，不会修改原文件。',
+            parent=self,
+        )
+        if not should_move:
+            return
+        try:
+            moved = move_grouped_media(result)
+        except Exception as exc:
+            return messagebox.showerror('移动失败', f'已停止移动：{exc}', parent=self)
+        self.product_group_status.set(f'分款完成 · 已移动 {len(moved)} 项素材')
+        messagebox.showinfo(
+            '分款完成', f'已按 {len(result.group_counts)} 个款式移动 {len(moved)} 项素材。', parent=self
+        )
 
     def calculate(self):
         """Omit placeholder locations from generated output folder names."""
